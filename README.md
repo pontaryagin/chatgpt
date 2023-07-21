@@ -6,8 +6,16 @@
 - python 3.8 and later
 - langchain (0.0.229)
 
+## Install
+
 ```
 pip3 install langchain
+```
+
+## Set API key
+
+```
+export OPENAI_API_KEY="YOUR_OPENAI_API_KEY"
 ```
 
 ## Create index
