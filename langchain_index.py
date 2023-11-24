@@ -8,6 +8,7 @@ import sys
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from pypdf import PdfReader
 from langchain.vectorstores.chroma import Chroma
+from langchain.vectorstores.faiss import FAISS
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.text_splitter import CharacterTextSplitter
 from itertools import chain
@@ -56,14 +57,15 @@ def embed_pdf2(path_to_pdf: str):
                 curr_len -= len(text)
                 curr_text_pos += 1
     embeddings = OpenAIEmbeddings()
-    db: Chroma = Chroma.from_texts(chunked_texts, embeddings, persist_directory=db_path, metadatas=metadatas)
+    db: FAISS = FAISS.from_texts(chunked_texts, embeddings, metadatas=metadatas)
     return db
 
 # write code remove db_path
 import shutil
-shutil.rmtree(db_path)
+shutil.rmtree(db_path, ignore_errors=True)
 
 path_to_pdf = sys.argv[1] if len(sys.argv) > 1 else "Markov-Functional_Interest_Rate_Models.pdf"
 
 # texts = get_pdf(path_to_pdf)
 db = embed_pdf2(path_to_pdf)
+db.save_local(db_path)
