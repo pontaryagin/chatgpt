@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from typing import Iterable
 import pysqlite_load
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores.chroma import Chroma
@@ -8,7 +9,7 @@ from langchain.chains import RetrievalQA
 from langchain.schema.document import Document
 from langchain.prompts import ChatPromptTemplate
 from langchain.schema.output_parser import StrOutputParser
-from langchain.schema.runnable import RunnableLambda, RunnablePassthrough
+from langchain.schema.runnable import RunnableLambda, RunnablePassthrough, RunnableGenerator
 
 embeddings = OpenAIEmbeddings()
 vectorstore = FAISS.load_local("./storage", embeddings)
@@ -29,31 +30,40 @@ qa = RetrievalQA.from_chain_type(llm=llm, chain_type="stuff",
 question = "please summarize the document"
 
 
-# template = """Answer the question based only on the following context:
-# {context}
+template = """Answer the question based only on the following context:
+{context}
 
-# Question: {question}
-# """
-# prompt = ChatPromptTemplate.from_template(template, verbose=True)
+Question: {question}
 
-# model = ChatOpenAI()
+Answer should be in Japanese.
+"""
+prompt = ChatPromptTemplate.from_template(template, verbose=True)
 
-# chain = (
-#     {"context": retriever, "question": RunnablePassthrough()}
-#     | prompt
-#     | model
-# )
+model = ChatOpenAI()
+
+def join_docs(docs: list[Document]):
+	ret =  "\n\n".join([doc.page_content for doc in docs])
+	print(f"joint: {ret}\n")
+	return ret
+
+def format_answer(answer: Iterable[str]):
+	yield "A: "
+	yield from answer
+
+chain = (
+    {"context": retriever | RunnableLambda(join_docs), "question": RunnablePassthrough()}
+    | prompt
+    | model
+	| StrOutputParser()
+	| RunnableGenerator(format_answer)
+)
 
 while True:
-	print("Q:" + (question or ""))
+	print("Q: " + (question or ""), end="")
 	query = question or input()
 	question = None
-	# answer = qa.run(query)
-	res = qa({"query": query})
-	res["source_documents"][0]
-	print(f"Answear refering the following data.")
-	doc: Document
-	for doc in res['source_documents']:
-		print(f"[Page {doc.metadata.get('page')}] {doc.page_content}")
-	print("A:", res["result"])
+	for chunk in chain.stream(query):
+		print(chunk, end="", flush=True)
+	print("\n")
+
 
