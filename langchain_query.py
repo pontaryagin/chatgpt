@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from langserve import add_routes
 import asyncio
 import uvicorn
+from operator import itemgetter
 
 embeddings = OpenAIEmbeddings()
 vectorstore = FAISS.load_local("./storage", embeddings)
@@ -54,12 +55,14 @@ async def aformat_answer(answer: AsyncIterator[str]):
 	async for item in answer:
 		yield item
 
+from langchain.chains import ConversationChain
+
 chain = (
-	{"context": retriever | RunnableLambda(ajoin_docs), "question": RunnablePassthrough()}
+	{"context": retriever | RunnableLambda(ajoin_docs),  "question": RunnablePassthrough()}
 	| prompt
 	| model
 	| StrOutputParser()
-	| RunnableGenerator(aformat_answer)
+	# | RunnableGenerator(aformat_answer)
 )
 
 
@@ -91,7 +94,47 @@ async def main():
 			print(chunk, end="", flush=True)
 		print("\n")
 
-if __name__ == "__main__":
-	# asyncio.run(main())
-    uvicorn.run(app, host="localhost", port=8000)
+# if __name__ == "__main__":
+# 	# asyncio.run(main())
+#     uvicorn.run(app, host="localhost", port=8000)
+
+from langchain.chat_models import ChatOpenAI
+from langchain.prompts import ChatPromptTemplate
+from langchain.schema import StrOutputParser
+from langchain.schema.runnable import Runnable
+from langchain.schema.runnable.config import RunnableConfig
+
+import chainlit as cl
+
+@cl.on_chat_start
+async def on_chat_start():
+    # model = ChatOpenAI(streaming=True)
+    # prompt = ChatPromptTemplate.from_messages(
+    #     [
+    #         (
+    #             "system",
+    #             "You're a very knowledgeable historian who provides accurate and eloquent answers to historical questions.",
+    #         ),
+    #         ("human", "{question}"),
+    #     ]
+    # )
+    runnable = chain
+    cl.user_session.set("runnable", runnable)
+
+
+@cl.on_message
+async def on_message(message: cl.Message):
+    runnable: Runnable = cl.user_session.get("runnable")  # type: ignore
+
+    msg = cl.Message(content="")
+
+    async for chunk in runnable.astream(
+        message.content,
+        config=RunnableConfig(callbacks=[cl.LangchainCallbackHandler()]),
+    ):
+        await msg.stream_token(chunk)
+
+    await msg.send()
+
+
 
