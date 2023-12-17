@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from typing import Iterable
+from typing import AsyncIterator, Iterable
 import pysqlite_load
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores.chroma import Chroma
@@ -10,6 +10,10 @@ from langchain.schema.document import Document
 from langchain.prompts import ChatPromptTemplate
 from langchain.schema.output_parser import StrOutputParser
 from langchain.schema.runnable import RunnableLambda, RunnablePassthrough, RunnableGenerator
+from fastapi import FastAPI
+from langserve import add_routes
+import asyncio
+import uvicorn
 
 embeddings = OpenAIEmbeddings()
 vectorstore = FAISS.load_local("./storage", embeddings)
@@ -27,7 +31,6 @@ qa = RetrievalQA.from_chain_type(llm=llm, chain_type="stuff",
 								return_source_documents=True,
 								chain_type_kwargs=dict(verbose=True))
 
-question = "please summarize the document"
 
 
 template = """Answer the question based only on the following context:
@@ -41,29 +44,54 @@ prompt = ChatPromptTemplate.from_template(template, verbose=True)
 
 model = ChatOpenAI()
 
-def join_docs(docs: list[Document]):
+def ajoin_docs(docs: list[Document]):
 	ret =  "\n\n".join([doc.page_content for doc in docs])
 	print(f"joint: {ret}\n")
 	return ret
 
-def format_answer(answer: Iterable[str]):
+async def aformat_answer(answer: AsyncIterator[str]):
 	yield "A: "
-	yield from answer
+	async for item in answer:
+		yield item
 
 chain = (
-    {"context": retriever | RunnableLambda(join_docs), "question": RunnablePassthrough()}
-    | prompt
-    | model
+	{"context": retriever | RunnableLambda(ajoin_docs), "question": RunnablePassthrough()}
+	| prompt
+	| model
 	| StrOutputParser()
-	| RunnableGenerator(format_answer)
+	| RunnableGenerator(aformat_answer)
 )
 
-while True:
-	print("Q: " + (question or ""), end="")
-	query = question or input()
-	question = None
-	for chunk in chain.stream(query):
-		print(chunk, end="", flush=True)
-	print("\n")
 
+app = FastAPI(
+  title="My PDF Search API",
+  version="1.0",
+  description="A simple api server using Langchain's Runnable interfaces",
+)
+
+add_routes(
+    app,
+    ChatOpenAI(),
+    path="/openai",
+)
+
+add_routes(
+    app,
+    chain,
+    path="/my_chain",
+)
+
+async def main():
+	question = "please summarize the document"
+	while True:
+		print("Q: " + (question or ""), end="")
+		query = question or input()
+		question = None
+		async for chunk in chain.astream(query):
+			print(chunk, end="", flush=True)
+		print("\n")
+
+if __name__ == "__main__":
+	# asyncio.run(main())
+    uvicorn.run(app, host="localhost", port=8000)
 
