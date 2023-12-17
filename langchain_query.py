@@ -46,7 +46,7 @@ model = ChatOpenAI()
 
 def ajoin_docs(docs: list[Document]):
 	ret =  "\n\n".join([doc.page_content for doc in docs])
-	print(f"joint: {ret}\n")
+	# print(f"joint: {ret}\n")
 	return ret
 
 async def aformat_answer(answer: AsyncIterator[str]):
